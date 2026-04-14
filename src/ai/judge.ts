@@ -37,15 +37,26 @@ function getProvider(): Provider {
 }
 
 function getModel(provider: Provider): string {
-  if (process.env.QA_MODEL?.trim()) {
-    return process.env.QA_MODEL;
-  }
+  // Check provider-specific env var first, then generic QA_MODEL, then defaults
+  const providerEnvMap: Record<Provider, string> = {
+    openai: 'OPENAI_QA_MODEL',
+    anthropic: 'ANTHROPIC_QA_MODEL',
+    xai: 'XAI_QA_MODEL',
+    openrouter: 'OPENROUTER_QA_MODEL',
+    'openai-compatible': 'QA_COMPAT_MODEL',
+  };
+
+  const providerSpecific = process.env[providerEnvMap[provider]]?.trim();
+  if (providerSpecific) return providerSpecific;
+
+  const generic = process.env.QA_MODEL?.trim();
+  if (generic) return generic;
 
   switch (provider) {
     case 'anthropic':
       return 'claude-3-5-sonnet-latest';
     case 'xai':
-      return 'grok-3-mini';
+      return 'grok-3';
     case 'openrouter':
       return 'meta-llama/llama-3.3-70b-instruct';
     case 'openai-compatible':
@@ -58,10 +69,22 @@ function getModel(provider: Provider): string {
 
 function buildInstruction(input: JudgeInput): string {
   return (
-    `You are a senior software QA analyst. ` +
-    `Review the provided browser state and identify real product issues. ` +
-    `Be conservative. Do not invent bugs. ` +
-    `Only report issues that are reasonably supported by the evidence. ` +
+    `You are a senior software QA analyst performing a thorough audit.\n\n` +
+    `RULES:\n` +
+    `- Only report issues with CONCRETE evidence visible in the snapshot or screenshot.\n` +
+    `- Do NOT invent bugs, speculate, or report cosmetic preferences.\n` +
+    `- Do NOT report the same issue more than once, even if it appears in multiple elements.\n` +
+    `- Each title MUST follow the pattern: "[CATEGORY] Specific defect on <element/area>"\n` +
+    `  Examples: "[accessibility] Missing alt text on hero banner image",\n` +
+    `            "[functional] 401 error on /oauth/refresh-jwt endpoint",\n` +
+    `            "[ui] CLS layout shift in league-card grid on /baseball"\n` +
+    `- Use EXACTLY the same title if the same root-cause issue appears on different pages.\n` +
+    `- Focus on issues a REAL USER would notice: broken flows, error states, missing data,\n` +
+    `  accessibility failures, console errors, HTTP 4xx/5xx, layout breakage.\n` +
+    `- Assign confidence 0.8-1.0 only when you have direct evidence (error message, broken image, etc.).\n` +
+    `- Assign confidence 0.5-0.7 for likely issues inferred from indirect evidence.\n` +
+    `- Assign confidence below 0.5 for speculative or minor issues.\n` +
+    `- Limit to at most 5 issues per analysis. Report only the most impactful.\n\n` +
     `Return valid JSON matching this shape:\n\n` +
     `{\n` +
     `  "pageSummary": string,\n` +

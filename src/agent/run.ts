@@ -120,6 +120,7 @@ async function main() {
 
   const page = await context.newPage();
   const allCandidates: BugCandidate[] = [];
+  let filableFinal: BugCandidate[] = [];
 
   try {
     // ═══ Phase 1: Discover routes ═══
@@ -229,11 +230,19 @@ async function main() {
               JSON.stringify(result, null, 2),
             );
 
-            // If the interaction produced errors or unexpected state, analyze it
+            // Only analyze interactions that produced meaningful errors
+            const hasServerError = result.networkErrors.some(e => e.status >= 500);
+            const hasClientError = result.networkErrors.some(e => e.status >= 400 && e.status < 500
+              && !e.url.includes('/oauth/refresh-jwt'));  // Ignore known auth refresh noise
+            const hasConsoleError = result.consoleErrors.some(e => !/favicon|third-party|analytics/i.test(e));
+            const hasVisibleError = result.after.bodyExcerpt.match(
+              /error|failed|something went wrong|500 internal|not found|crash/i,
+            );
             const hasErrors = result.error !== null
-              || result.networkErrors.some(e => e.status >= 500)
-              || result.consoleErrors.length > 0
-              || result.after.bodyExcerpt.match(/error|failed|something went wrong|authentication required/i);
+              || hasServerError
+              || hasConsoleError
+              || hasVisibleError
+              || (hasClientError && result.networkErrors.filter(e => e.status >= 400).length >= 3);
 
             if (hasErrors) {
               const interactionAI = await analyzeInteraction(route.url, target.label, result);
@@ -269,14 +278,17 @@ async function main() {
 
     // ═══ Phase 4: Deduplicate + Filter + File ═══
     console.log('\n── Phase 4: Deduplicate & File ──');
+    console.log(`  Raw candidates: ${allCandidates.length}`);
     const deduped = deduplicateBugs(allCandidates);
     const filable = filterFilable(deduped, MIN_CONFIDENCE);
 
-    console.log(`  Raw candidates:     ${allCandidates.length}`);
-    console.log(`  After dedup:        ${deduped.length}`);
+    console.log(`  ─────────────────────────────`);
+    console.log(`  After full dedup:   ${deduped.length}`);
     console.log(`  Above threshold:    ${filable.length}`);
+    console.log(`  Reduction:          ${((1 - filable.length / Math.max(allCandidates.length, 1)) * 100).toFixed(0)}%`);
 
     run.bugsFound = filable.length;
+    filableFinal = filable;
 
     const jiraConfig = getJiraConfig();
 
@@ -339,14 +351,15 @@ async function main() {
   console.log(`  Report:               ${reportPath}`);
   console.log('═══════════════════════════════════════════\n');
 
-  // Write all candidates to a separate file for review
+  // Write all candidates to a separate file for review (deduped filable set)
   const candidatesPath = path.join(OUT_DIR, 'all-candidates.json');
-  await fs.writeFile(candidatesPath, JSON.stringify(allCandidates.map(c => ({
+  await fs.writeFile(candidatesPath, JSON.stringify(filableFinal.map(c => ({
     title: c.issue.title,
     severity: c.issue.severity,
     category: c.issue.category,
     confidence: c.issue.confidence,
     route: c.route,
+    affectedRoutes: c.affectedRoutes || [c.route],
   })), null, 2));
 }
 
