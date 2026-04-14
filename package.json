@@ -1,0 +1,33 @@
+{
+  "name": "ai-qa-agent",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "auth:open-chrome": "node scripts/open-auth-chrome.cjs",
+    "test": "playwright test",
+    "test:report": "node scripts/run-playwright-with-report.cjs",
+    "test:provider:matrix": "node scripts/run-provider-matrix.cjs",
+    "test:homepage:audit": "node scripts/run-playwright-with-report.cjs tests/homepage.spec.ts tests/homepage.audit.spec.ts tests/smoke.spec.ts",
+    "auth:save-session": "node scripts/save-auth-session.cjs",
+    "test:bug-report:live": "playwright test tests/bugReporter.live.spec.ts --project=chrome",
+    "test:jira:api": "playwright test tests/jira.api.spec.ts --project=chromium",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "report": "playwright show-report"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.1",
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^25.6.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "openai": "^6.34.0",
+    "zod": "^4.3.6"
+  }
+}
