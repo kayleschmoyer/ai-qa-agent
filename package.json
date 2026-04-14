@@ -14,7 +14,9 @@
     "test:jira:api": "playwright test tests/jira.api.spec.ts --project=chromium",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
-    "report": "playwright show-report"
+    "report": "playwright show-report",
+    "qa": "tsx src/agent/run.ts",
+    "qa:dry": "tsx src/agent/run.ts --dry-run"
   },
   "keywords": [],
   "author": "",
@@ -23,7 +25,8 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.59.1",
-    "@types/node": "^25.6.0"
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

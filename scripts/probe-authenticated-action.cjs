@@ -60,6 +60,20 @@ const actions = {
       await page.getByText(/^create a league$/i).click();
     },
   },
+  joinLeagueHub: {
+    description: 'Open Baseball hub and click Join League',
+    run: async page => {
+      await page.goto('/baseball', { waitUntil: 'load' });
+      await page.getByRole('button', { name: /^join league$/i }).click();
+    },
+  },
+  mockDraftHub: {
+    description: 'Open Baseball hub and click Mock Draft',
+    run: async page => {
+      await page.goto('/baseball', { waitUntil: 'load' });
+      await page.getByRole('button', { name: /mock draft/i }).click();
+    },
+  },
   games: {
     description: 'Open Games route',
     run: page => page.getByRole('link', { name: /^games$/i }).click(),
@@ -89,6 +103,13 @@ const actions = {
       await page.getByText(/^faqs & support$/i).click();
     },
   },
+  tutorial: {
+    description: 'Open Help page tutorial launch',
+    run: async page => {
+      await page.goto('/help', { waitUntil: 'load' });
+      await page.getByRole('button', { name: /launch tutorial/i }).click();
+    },
+  },
   bug: {
     description: 'Open Report a bug dialog',
     run: page => page.getByRole('button', { name: /report a bug/i }).click(),
@@ -100,6 +121,20 @@ const actions = {
   profile: {
     description: 'Open user profile menu',
     run: page => page.getByRole('button', { name: /user profile menu/i }).click(),
+  },
+  profileSettings: {
+    description: 'Open Profile Settings from user profile menu',
+    run: async page => {
+      await page.getByRole('button', { name: /user profile menu/i }).click();
+      await page.getByText(/^profile settings$/i).click();
+    },
+  },
+  signOut: {
+    description: 'Open Sign Out from user profile menu',
+    run: async page => {
+      await page.getByRole('button', { name: /user profile menu/i }).click();
+      await page.getByText(/^sign out$/i).click();
+    },
   },
   scoreboard: {
     description: 'Open first scoreboard link',
