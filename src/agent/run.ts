@@ -132,7 +132,7 @@ async function main() {
     } else {
       // Start with seed routes + anything discovered via link crawl
       const discovered = await discoverRoutes(page, BASE_URL, 2);
-      const seeded = SEED_ROUTES.map(r => ({ url: r, depth: 0, source: 'manual' as const }));
+      const seeded: RouteInfo[] = SEED_ROUTES.map(r => ({ url: r, depth: 0, source: 'manual' as const }));
       const seen = new Set(seeded.map(r => r.url.replace(/\/$/, '') || '/'));
       for (const d of discovered) {
         const norm = d.url.replace(/\/$/, '') || '/';
