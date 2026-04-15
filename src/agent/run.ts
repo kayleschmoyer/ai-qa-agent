@@ -21,7 +21,7 @@ import { discoverInteractiveElements, executeInteraction, type InteractionResult
 import { deduplicateBugs, filterFilable, buildJiraDescription, type BugCandidate } from './bugFilter';
 import { judgePage } from '../ai/judge';
 import type { JudgeResponse, Issue } from '../ai/schemas';
-import { getJiraConfig, createJiraIssue } from '../utils/jira';
+import { getJiraConfig, createJiraIssue, searchJiraIssues } from '../utils/jira';
 
 // ── Config ──────────────────────────────────────────
 const BASE_URL = process.env.BASE_URL || 'https://legacy-fantasy.com';
@@ -120,7 +120,12 @@ async function main() {
 
   const page = await context.newPage();
   const allCandidates: BugCandidate[] = [];
-  let filableFinal: BugCandidate[] = [];
+  const allFiled: BugCandidate[] = [];
+
+  // Track summaries already filed in THIS run to avoid intra-run dupes
+  const filedSummaries = new Set<string>();
+  const jiraConfig = getJiraConfig();
+  let skippedJiraDupes = 0;
 
   try {
     // ═══ Phase 1: Discover routes ═══
@@ -270,64 +275,81 @@ async function main() {
 
         page.off('response', onResp);
         page.off('console', onConsole);
+
+        // ── File bugs for this route immediately ──
+        const routeCandidates = allCandidates.filter(c => c.route === route.url);
+        if (routeCandidates.length > 0) {
+          const deduped = deduplicateBugs(routeCandidates);
+          const filable = filterFilable(deduped, MIN_CONFIDENCE);
+
+          for (const candidate of filable) {
+            // Skip if we already filed something with the same title this run
+            const normTitle = candidate.issue.title.toLowerCase().trim();
+            if (filedSummaries.has(normTitle)) continue;
+
+            const filed: FiledBug = {
+              jiraKey: null,
+              summary: candidate.issue.title,
+              severity: candidate.issue.severity,
+              category: candidate.issue.category,
+              confidence: candidate.issue.confidence,
+              route: candidate.route,
+              screenshotPath: candidate.screenshotPath,
+            };
+
+            if (!DRY_RUN && jiraConfig) {
+              try {
+                const existingKeys = await searchJiraIssues(jiraConfig, candidate.issue.title);
+                if (existingKeys.length > 0) {
+                  skippedJiraDupes++;
+                  console.log(`    ~ Skipped (exists as ${existingKeys[0]}): ${candidate.issue.title.slice(0, 55)}`);
+                  filed.jiraKey = existingKeys[0];
+                  filedSummaries.add(normTitle);
+                  run.bugs.push(filed);
+                  continue;
+                }
+
+                const response = await createJiraIssue(jiraConfig, {
+                  summary: candidate.issue.title,
+                  description: buildJiraDescription(candidate),
+                });
+                const body = await response.json().catch(() => null) as any;
+
+                if (response.ok && body?.key) {
+                  filed.jiraKey = body.key;
+                  run.bugsFiled++;
+                  filedSummaries.add(normTitle);
+                  console.log(`    ✓ Filed ${body.key}: ${candidate.issue.title.slice(0, 65)}`);
+                } else {
+                  console.log(`    ✗ Jira error: ${response.status} — ${candidate.issue.title.slice(0, 50)}`);
+                  run.errors.push(`Jira create failed: ${response.status} — ${JSON.stringify(body).slice(0, 200)}`);
+                }
+              } catch (err) {
+                run.errors.push(`Jira error: ${String(err).slice(0, 200)}`);
+              }
+            } else {
+              console.log(`    [dry-run] Would file: ${candidate.issue.title.slice(0, 65)}`);
+              filedSummaries.add(normTitle);
+            }
+
+            run.bugs.push(filed);
+            allFiled.push(candidate);
+          }
+
+          run.bugsFound = run.bugs.length;
+        }
       } catch (err) {
         console.log(`    ✗ Error: ${String(err).slice(0, 100)}`);
         run.errors.push(`Route ${route.url}: ${String(err).slice(0, 200)}`);
       }
     }
 
-    // ═══ Phase 4: Deduplicate + Filter + File ═══
-    console.log('\n── Phase 4: Deduplicate & File ──');
-    console.log(`  Raw candidates: ${allCandidates.length}`);
-    const deduped = deduplicateBugs(allCandidates);
-    const filable = filterFilable(deduped, MIN_CONFIDENCE);
-
-    console.log(`  ─────────────────────────────`);
-    console.log(`  After full dedup:   ${deduped.length}`);
-    console.log(`  Above threshold:    ${filable.length}`);
-    console.log(`  Reduction:          ${((1 - filable.length / Math.max(allCandidates.length, 1)) * 100).toFixed(0)}%`);
-
-    run.bugsFound = filable.length;
-    filableFinal = filable;
-
-    const jiraConfig = getJiraConfig();
-
-    for (const candidate of filable) {
-      const filed: FiledBug = {
-        jiraKey: null,
-        summary: candidate.issue.title,
-        severity: candidate.issue.severity,
-        category: candidate.issue.category,
-        confidence: candidate.issue.confidence,
-        route: candidate.route,
-        screenshotPath: candidate.screenshotPath,
-      };
-
-      if (!DRY_RUN && jiraConfig) {
-        try {
-          const response = await createJiraIssue(jiraConfig, {
-            summary: candidate.issue.title,
-            description: buildJiraDescription(candidate),
-          });
-          const body = await response.json().catch(() => null) as any;
-
-          if (response.ok && body?.key) {
-            filed.jiraKey = body.key;
-            run.bugsFiled++;
-            console.log(`  ✓ Filed ${body.key}: ${candidate.issue.title.slice(0, 70)}`);
-          } else {
-            console.log(`  ✗ Jira error for "${candidate.issue.title.slice(0, 50)}": ${response.status}`);
-            run.errors.push(`Jira create failed: ${response.status} — ${JSON.stringify(body).slice(0, 200)}`);
-          }
-        } catch (err) {
-          run.errors.push(`Jira error: ${String(err).slice(0, 200)}`);
-        }
-      } else {
-        console.log(`  [dry-run] Would file: ${candidate.issue.title.slice(0, 70)}`);
-      }
-
-      run.bugs.push(filed);
-    }
+    // ── Summary ──
+    console.log(`\n── Filing Summary ──`);
+    console.log(`  Total raw candidates: ${allCandidates.length}`);
+    console.log(`  Bugs filed to Jira:   ${run.bugsFiled}`);
+    console.log(`  Skipped (in Jira):    ${skippedJiraDupes}`);
+    console.log(`  Skipped (intra-run):  ${allCandidates.length - run.bugs.length - skippedJiraDupes}`);
   } finally {
     await context.close();
     await browser.close();
@@ -351,9 +373,9 @@ async function main() {
   console.log(`  Report:               ${reportPath}`);
   console.log('═══════════════════════════════════════════\n');
 
-  // Write all candidates to a separate file for review (deduped filable set)
+  // Write all candidates to a separate file for review
   const candidatesPath = path.join(OUT_DIR, 'all-candidates.json');
-  await fs.writeFile(candidatesPath, JSON.stringify(filableFinal.map(c => ({
+  await fs.writeFile(candidatesPath, JSON.stringify(allFiled.map((c: BugCandidate) => ({
     title: c.issue.title,
     severity: c.issue.severity,
     category: c.issue.category,

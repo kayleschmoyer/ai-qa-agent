@@ -63,6 +63,41 @@ function authHeader(config: JiraConfig) {
   return `Basic ${token}`;
 }
 
+/**
+ * Search for existing open Jira issues whose summary matches the given text.
+ * Uses JQL `summary ~ "text"` with the project and required labels scoped.
+ * Returns matching issue keys (e.g. ['LS-3200', 'LS-3201']).
+ */
+export async function searchJiraIssues(
+  config: JiraConfig,
+  summaryText: string,
+  maxResults = 5,
+): Promise<string[]> {
+  // Escape JQL special chars in the summary text
+  const escaped = summaryText.replace(/[\\"\[\]{}()+\-!^~*?:|&]/g, ' ').trim();
+  if (!escaped) return [];
+
+  const labelFilter = REQUIRED_JIRA_LABELS.map(l => `labels = "${l}"`).join(' AND ');
+  const jql = `project = "${config.projectKey}" AND ${labelFilter} AND summary ~ "${escaped}" AND statusCategory != Done ORDER BY created DESC`;
+
+  const url = `${config.baseUrl}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=${maxResults}&fields=key,summary`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: authHeader(config),
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) return [];
+
+  const body = (await response.json().catch(() => null)) as any;
+  if (!body?.issues?.length) return [];
+
+  return body.issues.map((i: any) => i.key as string);
+}
+
 export async function createJiraIssue(config: JiraConfig, input: { summary: string; description: string; labels?: string[] }) {
   const labels = [...REQUIRED_JIRA_LABELS];
 
